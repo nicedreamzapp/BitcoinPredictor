@@ -22,7 +22,7 @@ externalPort = 3000
 PORT = "5000"
 
 [agent]
-integrations = ["javascript_websocket:1.0.0", "javascript_mem_db:1.0.0", "javascript_openai:1.0.0"]
+integrations = ["javascript_websocket:1.0.0", "javascript_mem_db:1.0.0", "javascript_openai:1.0.0", "javascript_database:1.0.0"]
 
 [workflows]
 runButton = "Project"

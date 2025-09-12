@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { tradingEngine } from "./services/trading-engine";
 import { priceFeedService } from "./services/price-feed";
 import { mlPredictor } from "./services/ml-predictor";
+import { BacktestingEngine } from "./services/backtesting-engine";
 import { 
   insertTradingSignalSchema,
   insertTradeSchema,
@@ -16,6 +17,7 @@ import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
+  const backtestingEngine = new BacktestingEngine();
 
   // Initialize services
   priceFeedService.start();
@@ -251,17 +253,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Backtesting
-  app.post('/api/backtest', async (req, res) => {
+  // Run comprehensive backtest
+  app.post('/api/backtest/run', async (req, res) => {
     try {
-      const validatedData = insertBacktestResultSchema.parse(req.body);
-      const result = await storage.insertBacktestResult(validatedData);
+      const {
+        symbol = 'BTCUSD',
+        timeframe = '1h',
+        startDate,
+        endDate,
+        initialCapital = 10000,
+        riskPerTrade = 2,
+        maxPositions = 3,
+        stopLossPercent = 3,
+        takeProfitPercent = 6,
+        strategy = {
+          momentum: 0.35,
+          volume: 0.30,
+          trend: 0.18,
+          volatility: 0.17
+        }
+      } = req.body;
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({ 
+          message: "Start date and end date are required" 
+        });
+      }
+
+      const backtestParams = {
+        symbol,
+        timeframe,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        initialCapital,
+        riskPerTrade,
+        maxPositions,
+        stopLossPercent,
+        takeProfitPercent,
+        strategy
+      };
+
+      console.log('Running backtest with params:', backtestParams);
+      const result = await backtestingEngine.runBacktest(backtestParams);
       res.json(result);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ message: "Invalid backtest data", errors: error.errors });
-      } else {
-        res.status(500).json({ message: "Failed to run backtest" });
-      }
+      console.error('Backtest error:', error);
+      res.status(500).json({ 
+        message: "Failed to run backtest", 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Quick backtest with default parameters
+  app.post('/api/backtest/quick', async (req, res) => {
+    try {
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
+      
+      const backtestParams = {
+        symbol: 'BTCUSD',
+        timeframe: '1h',
+        startDate,
+        endDate,
+        initialCapital: 10000,
+        riskPerTrade: 2,
+        maxPositions: 3,
+        stopLossPercent: 3,
+        takeProfitPercent: 6,
+        strategy: {
+          momentum: 0.35,
+          volume: 0.30,
+          trend: 0.18,
+          volatility: 0.17
+        }
+      };
+
+      console.log('Running quick backtest...');
+      const result = await backtestingEngine.runBacktest(backtestParams);
+      res.json(result);
+    } catch (error) {
+      console.error('Quick backtest error:', error);
+      res.status(500).json({ 
+        message: "Failed to run quick backtest", 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
