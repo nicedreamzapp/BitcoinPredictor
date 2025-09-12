@@ -10,6 +10,7 @@ import {
   insertTradingSignalSchema,
   insertTradeSchema,
   insertBacktestResultSchema,
+  backtestParamsSchema,
   type LivePriceUpdate,
   type ConfidenceScore
 } from "@shared/schema";
@@ -65,12 +66,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!currentPrice) return;
 
     try {
-      // Get historical data for analysis
-      const priceHistory = await storage.getPriceData("BTCUSD", "5m", 200);
+      // Get historical data for analysis (need >200 for technical analysis)
+      const priceHistory = await storage.getPriceData("BTCUSD", "5m", 201);
       const prices = priceHistory.map(p => p.close).reverse();
       const volumes = priceHistory.map(p => p.volume).reverse();
 
-      if (prices.length >= 200) {
+      if (prices.length > 200) {
         // Calculate confidence scores
         const confidence = await tradingEngine.calculateConfidenceScore(prices, volumes);
         
@@ -256,48 +257,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Run comprehensive backtest
   app.post('/api/backtest/run', async (req, res) => {
     try {
-      const {
-        symbol = 'BTCUSD',
-        timeframe = '1h',
-        startDate,
-        endDate,
-        initialCapital = 10000,
-        riskPerTrade = 2,
-        maxPositions = 3,
-        stopLossPercent = 3,
-        takeProfitPercent = 6,
-        strategy = {
-          momentum: 0.35,
-          volume: 0.30,
-          trend: 0.18,
-          volatility: 0.17
-        }
-      } = req.body;
-
-      if (!startDate || !endDate) {
+      // Validate request body using Zod schema
+      const validatedParams = backtestParamsSchema.parse(req.body);
+      
+      const backtestParams = {
+        ...validatedParams,
+        startDate: new Date(validatedParams.startDate),
+        endDate: new Date(validatedParams.endDate)
+      };
+      
+      // Validate date range
+      if (backtestParams.startDate >= backtestParams.endDate) {
         return res.status(400).json({ 
-          message: "Start date and end date are required" 
+          message: "Start date must be before end date" 
         });
       }
-
-      const backtestParams = {
-        symbol,
-        timeframe,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        initialCapital,
-        riskPerTrade,
-        maxPositions,
-        stopLossPercent,
-        takeProfitPercent,
-        strategy
-      };
+      
+      // Validate date range isn't too large (more than 1 year)
+      const maxRangeMs = 365 * 24 * 60 * 60 * 1000; // 1 year
+      if (backtestParams.endDate.getTime() - backtestParams.startDate.getTime() > maxRangeMs) {
+        return res.status(400).json({ 
+          message: "Date range cannot exceed 1 year" 
+        });
+      }
 
       console.log('Running backtest with params:', backtestParams);
       const result = await backtestingEngine.runBacktest(backtestParams);
       res.json(result);
     } catch (error) {
       console.error('Backtest error:', error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          message: "Invalid backtest parameters", 
+          errors: error.errors 
+        });
+      }
       res.status(500).json({ 
         message: "Failed to run backtest", 
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -309,7 +303,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/backtest/quick', async (req, res) => {
     try {
       const endDate = new Date();
-      const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
+      // Increase the timeframe to ensure sufficient data points for technical analysis
+      // For 1h timeframe: 300 periods for pre-analysis + 7 days of trading = ~468 hours total
+      // This provides more than the required 250+ data points
+      const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 days ago (168 hours of 1h data)
       
       const backtestParams = {
         symbol: 'BTCUSD',
@@ -329,7 +326,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       };
 
-      console.log('Running quick backtest...');
+      console.log(`Running quick backtest from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      console.log(`Expected data points: ~${Math.ceil((endDate.getTime() - startDate.getTime()) / (60 * 60 * 1000)) + 300} (including 300 for technical analysis)`);
+      
       const result = await backtestingEngine.runBacktest(backtestParams);
       res.json(result);
     } catch (error) {

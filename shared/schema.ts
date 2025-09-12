@@ -116,6 +116,33 @@ export const insertBacktestResultSchema = createInsertSchema(backtestResults).om
   createdAt: true,
 });
 
+// Backtest parameters validation schema
+export const backtestParamsSchema = z.object({
+  symbol: z.string().default("BTCUSD"),
+  timeframe: z.enum(["5m", "15m", "1h", "4h", "1d"]).default("1h"),
+  startDate: z.string().datetime().or(z.date()),
+  endDate: z.string().datetime().or(z.date()),
+  initialCapital: z.number().positive().default(10000),
+  riskPerTrade: z.number().min(0.1).max(10).default(2), // 0.1% to 10%
+  maxPositions: z.number().int().min(1).max(10).default(3),
+  stopLossPercent: z.number().min(0.5).max(20).default(3), // 0.5% to 20%
+  takeProfitPercent: z.number().min(1).max(50).default(6), // 1% to 50%
+  strategy: z.object({
+    momentum: z.number().min(0).max(1).default(0.35),
+    volume: z.number().min(0).max(1).default(0.30),
+    trend: z.number().min(0).max(1).default(0.18),
+    volatility: z.number().min(0).max(1).default(0.17)
+  }).refine(
+    (strategy) => Math.abs(strategy.momentum + strategy.volume + strategy.trend + strategy.volatility - 1) < 0.01,
+    { message: "Strategy weights must sum to 1.0" }
+  ).default({
+    momentum: 0.35,
+    volume: 0.30,
+    trend: 0.18,
+    volatility: 0.17
+  })
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -134,6 +161,8 @@ export type Trade = typeof trades.$inferSelect;
 
 export type InsertBacktestResult = z.infer<typeof insertBacktestResultSchema>;
 export type BacktestResult = typeof backtestResults.$inferSelect;
+
+export type BacktestParams = z.infer<typeof backtestParamsSchema>;
 
 // Real-time data types
 export interface LivePriceUpdate {

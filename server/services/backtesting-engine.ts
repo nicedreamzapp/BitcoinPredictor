@@ -5,25 +5,14 @@ import {
   PriceData, 
   BacktestResult, 
   InsertBacktestResult,
-  TradingSignal 
+  TradingSignal,
+  BacktestParams
 } from '@shared/schema';
 
-export interface BacktestParams {
-  symbol: string;
-  timeframe: string;
+// BacktestParams interface replaced by the Zod-validated type from shared/schema
+export interface BacktestParamsWithDates extends Omit<BacktestParams, 'startDate' | 'endDate'> {
   startDate: Date;
   endDate: Date;
-  initialCapital: number;
-  riskPerTrade: number; // Percentage of capital to risk per trade
-  maxPositions: number; // Maximum concurrent positions
-  stopLossPercent: number;
-  takeProfitPercent: number;
-  strategy: {
-    momentum: number;
-    volume: number;
-    trend: number;
-    volatility: number;
-  };
 }
 
 export interface BacktestTrade {
@@ -62,15 +51,29 @@ export class BacktestingEngine {
     this.mlPredictor = new MLPredictor();
   }
 
-  async runBacktest(params: BacktestParams): Promise<BacktestResult> {
+  async runBacktest(params: BacktestParamsWithDates): Promise<BacktestResult> {
     console.log(`Starting backtest for ${params.symbol} from ${params.startDate.toISOString()} to ${params.endDate.toISOString()}`);
     
     // Get historical price data
     const historicalData = await this.getHistoricalData(params.symbol, params.timeframe, params.startDate, params.endDate);
     
-    if (historicalData.length < 50) {
-      throw new Error('Insufficient historical data for backtesting. Minimum 50 data points required.');
+    const minRequiredDataPoints = 250; // 200 for indicators + 50 for trading
+    if (historicalData.length < minRequiredDataPoints) {
+      const detailedMessage = `Insufficient historical data for backtesting. ` +
+        `Required: ${minRequiredDataPoints} data points (200 for technical analysis + 50 for trading). ` +
+        `Available: ${historicalData.length} data points. ` +
+        `Period: ${params.startDate.toISOString()} to ${params.endDate.toISOString()}. ` +
+        `Timeframe: ${params.timeframe}. ` +
+        `Consider using a longer date range or shorter timeframe.`;
+      
+      console.error(detailedMessage);
+      throw new Error(detailedMessage);
     }
+    
+    console.log(`Backtesting with ${historicalData.length} data points (minimum required: ${minRequiredDataPoints})`);
+    console.log(`Technical analysis will start from data point 200, trading from data point 200 to ${historicalData.length - 1}`);
+    console.log(`First few historical data timestamps:`, historicalData.slice(0, 5).map(d => d.timestamp.toISOString()));
+    console.log(`Last few historical data timestamps:`, historicalData.slice(-5).map(d => d.timestamp.toISOString()));
 
     // Initialize backtest state
     let capital = params.initialCapital;
@@ -92,12 +95,28 @@ export class BacktestingEngine {
     // Set trading engine weights
     this.tradingEngine.updateWeights(params.strategy);
 
-    // Process each price point
-    for (let i = 50; i < historicalData.length; i++) {
+    // Process each price point - start after we have sufficient history for technical analysis
+    for (let i = 200; i < historicalData.length; i++) {
       const currentCandle = historicalData[i];
-      const priceHistory = historicalData.slice(Math.max(0, i - 100), i + 1);
+      // Provide sufficient historical data for TradingEngine (needs at least 200 data points)
+      // We include the current candle plus 200 previous candles for a total of 201 data points
+      const priceHistory = historicalData.slice(i - 200, i + 1);
       const prices = priceHistory.map(p => p.close);
       const volumes = priceHistory.map(p => p.volume);
+      
+      // Validate we have sufficient data before proceeding
+      if (prices.length < 201) {
+        console.warn(`Skipping candle at index ${i}: insufficient data (${prices.length} points, need 201+). Slice: ${i - 200} to ${i + 1}`);
+        continue;
+      }
+      
+      console.log(`Processing candle ${i}: slice(${i - 200}, ${i + 1}) = ${prices.length} data points`);
+      
+      // Additional validation - ensure we actually have 201+ points
+      if (prices.length < 201) {
+        console.error(`Fatal error: after validation, still have insufficient data: ${prices.length} points`);
+        continue;
+      }
 
       // Check for exit conditions on open positions
       for (let j = openPositions.length - 1; j >= 0; j--) {
@@ -129,37 +148,38 @@ export class BacktestingEngine {
 
       // Check for new entry signals (only if we have room for more positions)
       if (openPositions.length < params.maxPositions) {
+        // Follow the same flow as live trading: confidence → ML enhancement → signal generation
         try {
+          console.log(`Calculating signals for ${currentCandle.timestamp.toUTCString()}: ${prices.length} prices, ${volumes.length} volumes`);
           const confidence = await this.tradingEngine.calculateConfidenceScore(prices, volumes);
           
-          // Generate entry signal based on confidence
-          const signal = this.generateEntrySignal(confidence, currentCandle, params);
+          // Enhance with ML analysis like in live trading
+          const marketAnalysis = await this.mlPredictor.analyzeMarket(prices, volumes, currentCandle.close);
+          const enhancedConfidence = await this.tradingEngine.enhanceWithML(confidence, marketAnalysis);
           
-          if (signal && this.shouldEnterTrade(signal, params)) {
+          // Generate trading signal using the enhanced confidence and TradingEngine logic
+          const tradingSignal = await this.tradingEngine.generateTradingSignal(enhancedConfidence, currentCandle.close);
+          
+          if (tradingSignal && this.shouldEnterTradeFromSignal(tradingSignal, params)) {
             const positionSize = this.calculatePositionSize(capital, currentCandle.close, params.riskPerTrade, params.stopLossPercent);
             
             if (positionSize > 0) {
-              const stopLoss = signal.side === 'LONG' 
-                ? currentCandle.close * (1 - params.stopLossPercent / 100)
-                : currentCandle.close * (1 + params.stopLossPercent / 100);
-                
-              const takeProfit = signal.side === 'LONG'
-                ? currentCandle.close * (1 + params.takeProfitPercent / 100)
-                : currentCandle.close * (1 - params.takeProfitPercent / 100);
-
+              // Use stop loss and take profit from the actual trading signal
               openPositions.push({
                 entryTime: currentCandle.timestamp,
                 entryPrice: currentCandle.close,
-                side: signal.side,
+                side: tradingSignal.signalType as 'LONG' | 'SHORT',
                 quantity: positionSize,
-                stopLoss,
-                takeProfit,
-                signal: signal.signal
+                stopLoss: tradingSignal.stopLoss,
+                takeProfit: tradingSignal.takeProfit,
+                signal: tradingSignal
               });
             }
           }
         } catch (error) {
-          console.warn(`Error calculating signals for ${currentCandle.timestamp}: ${error}`);
+          console.error(`Error calculating signals for ${currentCandle.timestamp.toUTCString()}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Continue with next iteration instead of failing the entire backtest
+          continue;
         }
       }
 
@@ -233,33 +253,62 @@ export class BacktestingEngine {
     const existingData = await storage.getPriceData(symbol, timeframe, 1000);
     
     if (existingData.length > 0) {
-      return existingData
-        .filter(d => d.timestamp >= startDate && d.timestamp <= endDate)
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      // Sort existing data by timestamp
+      const sortedData = existingData.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
+      // Calculate required periods: 300 for pre-analysis + period count for date range
+      const intervalMs = this.getIntervalMs(timeframe);
+      const periodCount = Math.ceil((endDate.getTime() - startDate.getTime()) / intervalMs);
+      const requiredDataPoints = 300 + periodCount; // 300 for technical analysis + actual trading period
+      
+      // If we have enough existing data that covers the needed timeframe
+      if (sortedData.length >= requiredDataPoints) {
+        console.log(`Using existing price data: ${sortedData.length} points (need ${requiredDataPoints})`);
+        
+        // Find the start index for our extended start date (300 periods before actual start)
+        const extendedStartDate = new Date(startDate.getTime() - (300 * intervalMs));
+        
+        // Filter data to include pre-analysis data
+        const filteredData = sortedData.filter(d => {
+          const timestamp = new Date(d.timestamp).getTime();
+          return timestamp >= extendedStartDate.getTime() && timestamp <= endDate.getTime();
+        });
+        
+        if (filteredData.length >= 250) { // Minimum required for backtesting
+          console.log(`Filtered existing data: ${filteredData.length} points for backtest`);
+          return filteredData;
+        }
+      }
+      
+      console.log(`Existing data insufficient (${sortedData.length} points, need ${requiredDataPoints}), generating synthetic data`);
     }
 
-    // Generate synthetic historical data for backtesting
+    // Generate synthetic historical data for backtesting (includes pre-data for technical analysis)
+    console.log(`Generating synthetic data for backtest from ${startDate.toISOString()} to ${endDate.toISOString()}`);
     return this.generateSyntheticHistoricalData(symbol, timeframe, startDate, endDate);
   }
 
   private generateSyntheticHistoricalData(symbol: string, timeframe: string, startDate: Date, endDate: Date): PriceData[] {
     const data: PriceData[] = [];
     const intervalMs = this.getIntervalMs(timeframe);
-    let currentTime = new Date(startDate);
+    
+    // Ensure we have enough pre-data for technical analysis (add 300 periods before start date)
+    const extendedStartDate = new Date(startDate.getTime() - (300 * intervalMs));
+    let currentTime = new Date(extendedStartDate);
     let currentPrice = 40000; // Starting BTC price
     
     while (currentTime <= endDate) {
       // Generate realistic price movement with volatility
-      const volatility = 0.02; // 2% hourly volatility
-      const trend = 0.0001; // Slight upward trend
+      const volatility = 0.015; // 1.5% volatility per period
+      const trend = 0.00005; // Slight upward trend
       const randomMove = (Math.random() - 0.5) * volatility;
       const priceChange = (trend + randomMove) * currentPrice;
       
       const open = currentPrice;
       const close = currentPrice + priceChange;
-      const high = Math.max(open, close) * (1 + Math.random() * 0.01);
-      const low = Math.min(open, close) * (1 - Math.random() * 0.01);
-      const volume = 1000000 + Math.random() * 2000000; // Random volume
+      const high = Math.max(open, close) * (1 + Math.random() * 0.008);
+      const low = Math.min(open, close) * (1 - Math.random() * 0.008);
+      const volume = 800000 + Math.random() * 1600000; // Random volume between 800k-2.4M
 
       data.push({
         id: `synthetic_${currentTime.getTime()}`,
@@ -277,6 +326,7 @@ export class BacktestingEngine {
       currentTime = new Date(currentTime.getTime() + intervalMs);
     }
 
+    console.log(`Generated ${data.length} synthetic data points for backtesting (${300} extra periods for technical analysis)`);
     return data;
   }
 
@@ -291,58 +341,12 @@ export class BacktestingEngine {
     return intervals[timeframe] || intervals['1h'];
   }
 
-  private generateEntrySignal(confidence: any, candle: PriceData, params: BacktestParams): { side: 'LONG' | 'SHORT'; signal: TradingSignal } | null {
-    const longThreshold = 65;
-    const shortThreshold = 65;
+  // Removed generateEntrySignal method since we now use TradingEngine.generateTradingSignal directly
 
-    if (confidence.longConfidence > longThreshold) {
-      return {
-        side: 'LONG',
-        signal: {
-          id: `backtest_${Date.now()}`,
-          timestamp: candle.timestamp,
-          symbol: params.symbol,
-          signalType: 'LONG',
-          confidence: confidence.longConfidence,
-          price: candle.close,
-          stopLoss: candle.close * (1 - params.stopLossPercent / 100),
-          takeProfit: candle.close * (1 + params.takeProfitPercent / 100),
-          reasoning: 'Backtest signal generation',
-          isActive: true,
-          momentumScore: confidence.momentumScore,
-          volumeScore: confidence.volumeScore,
-          trendScore: confidence.trendScore,
-          volatilityScore: confidence.volatilityScore
-        }
-      };
-    } else if (confidence.shortConfidence > shortThreshold) {
-      return {
-        side: 'SHORT',
-        signal: {
-          id: `backtest_${Date.now()}`,
-          timestamp: candle.timestamp,
-          symbol: params.symbol,
-          signalType: 'SHORT',
-          confidence: confidence.shortConfidence,
-          price: candle.close,
-          stopLoss: candle.close * (1 + params.stopLossPercent / 100),
-          takeProfit: candle.close * (1 - params.takeProfitPercent / 100),
-          reasoning: 'Backtest signal generation',
-          isActive: true,
-          momentumScore: confidence.momentumScore,
-          volumeScore: confidence.volumeScore,
-          trendScore: confidence.trendScore,
-          volatilityScore: confidence.volatilityScore
-        }
-      };
-    }
-
-    return null;
-  }
-
-  private shouldEnterTrade(signal: { side: 'LONG' | 'SHORT'; signal: TradingSignal }, params: BacktestParams): boolean {
-    // Add additional filters here if needed
-    return signal.signal.confidence >= 65;
+  private shouldEnterTradeFromSignal(signal: TradingSignal, params: BacktestParamsWithDates): boolean {
+    // Signal has already been filtered by TradingEngine's threshold logic
+    // Add any additional backtesting-specific filters here if needed
+    return signal.isActive && signal.confidence >= 0.65; // confidence is stored as decimal in TradingSignal
   }
 
   private calculatePositionSize(capital: number, price: number, riskPercent: number, stopLossPercent: number): number {
