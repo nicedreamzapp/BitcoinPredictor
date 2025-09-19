@@ -131,7 +131,7 @@ export function registerRoutes(app: Express): Server {
   app.get('/api/market/history', async (req, res) => {
     try {
       const { timeframe = '1h', limit = 100 } = req.query;
-      const history = Array.from({ length: 100 }, (_, i) => ({ id: `mock-${i}`, symbol: "BTCUSD", timestamp: new Date(Date.now() - (99-i) * 60000), open: 116000 + Math.sin(i*0.1)*1000, high: 116000 + Math.sin(i*0.1)*1000 + 200, low: 116000 + Math.sin(i*0.1)*1000 - 200, close: 116000 + Math.sin(i*0.1)*1000 + (Math.random()-0.5)*100, volume: 50000000, timeframe: "1h" }));
+      const history = await storage.getPriceData("BTCUSD", timeframe as string, parseInt(limit as string));
       res.json(history);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch market history" });

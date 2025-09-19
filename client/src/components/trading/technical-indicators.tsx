@@ -35,7 +35,7 @@ export default function TechnicalIndicators() {
     emaStatus: 'BULLISH',
     volumeProfile: 'HIGH',
     pvsraStatus: 'BULL SPIKE',
-    supportResistance: { resistance: 43850, support: 42150 },
+    supportResistance: { resistance: 118900, support: 114200 },
     overallSignal: 'STRONG BUY'
   };
 

@@ -84,6 +84,7 @@ class Storage implements IStorage {
 
   // Price data management
   async insertPriceData(data: InsertPriceData): Promise<PriceData> {
+    console.log("Storage: insertPriceData called with price:", data.close);
     const result = await db.insert(priceData).values({
       id: randomUUID(),
       ...data
@@ -233,6 +234,7 @@ class Storage implements IStorage {
 
   // Real-time data
   updateCurrentPrice(priceUpdate: LivePriceUpdate): void {
+    console.log("Storage: updateCurrentPrice called with:", priceUpdate.price);
     this.currentPrice = priceUpdate;
   }
 
