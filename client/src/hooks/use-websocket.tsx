@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { LivePriceUpdate, ConfidenceScore, TradingSignal, Trade, RiskMetrics } from '@shared/schema';
 
 export type WebSocketMessage = {
-  type: 'price_update' | 'confidence_update' | 'new_signal' | 'new_trade' | 'risk_metrics' | 'emergency_stop';
+  type: 'price_update' | 'confidence_update' | 'new_signal' | 'new_trade' | 'risk_metrics' | 'emergency_stop' | 'keepalive';
   data: any;
 };
 
@@ -27,18 +27,22 @@ export function useWebSocket(): UseWebSocketReturn {
   const [newSignal, setNewSignal] = useState<TradingSignal | null>(null);
   const [newTrade, setNewTrade] = useState<Trade | null>(null);
   const [riskMetrics, setRiskMetrics] = useState<RiskMetrics | null>(null);
-
+  
   const ws = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
+  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const connect = useCallback(() => {
     try {
+      if (ws.current?.readyState === WebSocket.OPEN) {
+        return;
+      }
+
       setConnectionStatus('connecting');
       
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      // Use hardcoded URL for development to avoid undefined port
+      const wsUrl = `ws://localhost:3001/ws`;
       
       ws.current = new WebSocket(wsUrl);
 
@@ -52,8 +56,8 @@ export function useWebSocket(): UseWebSocketReturn {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
           setLastMessage(message);
-
-          // Handle specific message types
+          
+          // Handle different message types
           switch (message.type) {
             case 'price_update':
               setPriceUpdate(message.data);
@@ -70,8 +74,8 @@ export function useWebSocket(): UseWebSocketReturn {
             case 'risk_metrics':
               setRiskMetrics(message.data);
               break;
-            case 'emergency_stop':
-              console.log('Emergency stop executed');
+            case 'keepalive':
+              // Just keep the connection alive, no action needed
               break;
           }
         } catch (error) {
@@ -79,15 +83,16 @@ export function useWebSocket(): UseWebSocketReturn {
         }
       };
 
-      ws.current.onclose = () => {
+      ws.current.onclose = (event) => {
         console.log('WebSocket disconnected');
         setConnectionStatus('disconnected');
         
-        // Attempt to reconnect if not manually closed
-        if (reconnectAttempts.current < maxReconnectAttempts) {
+        // Only reconnect if it wasn't a clean close and we haven't exceeded max attempts
+        if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
+          reconnectAttempts.current += 1;
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectAttempts.current++;
+          
+          reconnectTimeout.current = setTimeout(() => {
             connect();
           }, delay);
         }
@@ -97,56 +102,39 @@ export function useWebSocket(): UseWebSocketReturn {
         console.error('WebSocket error:', error);
         setConnectionStatus('error');
       };
-
     } catch (error) {
-      console.error('Failed to connect WebSocket:', error);
+      console.error('Failed to create WebSocket connection:', error);
       setConnectionStatus('error');
     }
   }, []);
 
   const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
     }
     
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.close();
+    if (ws.current) {
+      ws.current.close(1000, 'Component unmounting');
+      ws.current = null;
     }
     
     setConnectionStatus('disconnected');
   }, []);
 
   const sendMessage = useCallback((message: any) => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+    if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify(message));
-    } else {
-      console.warn('WebSocket is not connected');
     }
   }, []);
 
   useEffect(() => {
     connect();
-    
+
     return () => {
       disconnect();
     };
   }, [connect, disconnect]);
-
-  // Clear individual updates after they've been processed
-  useEffect(() => {
-    if (newSignal) {
-      const timer = setTimeout(() => setNewSignal(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [newSignal]);
-
-  useEffect(() => {
-    if (newTrade) {
-      const timer = setTimeout(() => setNewTrade(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [newTrade]);
 
   return {
     connectionStatus,

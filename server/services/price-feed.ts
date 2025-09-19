@@ -1,29 +1,38 @@
 import { storage } from "../storage";
 import { type LivePriceUpdate, type InsertPriceData } from "@shared/schema";
+import axios from "axios";
 
 export class PriceFeedService {
   private isRunning = false;
   private intervalId: NodeJS.Timeout | null = null;
   
-  // Simulated Bitcoin price for development
-  private currentPrice = 43487.25;
+  // Will be populated from real API
+  private currentPrice = 94000; // Rough current BTC price as fallback
   private lastUpdate = Date.now();
 
   start(): void {
     if (this.isRunning) return;
 
     this.isRunning = true;
-    console.log("Starting Bitcoin price feed...");
+    console.log("Starting Bitcoin price feed with real data...");
 
-    // Update price every 1 second
+    // Fetch initial price immediately
+    this.fetchRealPrice();
+
+    // Update price every 30 seconds (CoinGecko free tier limit)
     this.intervalId = setInterval(() => {
+      this.fetchRealPrice();
+    }, 30000);
+
+    // Generate price variations every 1 second based on real data
+    setInterval(() => {
       this.generatePriceUpdate();
     }, 1000);
 
     // Store OHLCV data every 5 minutes
     setInterval(() => {
       this.storePriceData();
-    }, 5 * 60 * 1000);
+    }, 5 * 1000);
   }
 
   stop(): void {
@@ -37,23 +46,49 @@ export class PriceFeedService {
     console.log("Bitcoin price feed stopped.");
   }
 
+  private async fetchRealPrice(): Promise<void> {
+    try {
+      const response = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true');
+      
+      const data = response.data.bitcoin;
+      if (data && data.usd) {
+        this.currentPrice = data.usd;
+        console.log(`Real BTC price updated: $${this.currentPrice.toLocaleString()}`);
+        
+        // Create a real price update
+        const priceUpdate: LivePriceUpdate = {
+          symbol: "BTCUSD",
+          price: this.currentPrice,
+          change24h: data.usd_24h_change || 0,
+          changePercent24h: data.usd_24h_change || 0,
+          volume24h: data.usd_24h_vol || 50000000000,
+          high24h: this.currentPrice * 1.02, // Estimate
+          low24h: this.currentPrice * 0.98,  // Estimate
+          timestamp: Date.now()
+        };
+        
+        storage.updateCurrentPrice(priceUpdate);
+      }
+    } catch (error) {
+      console.error('Failed to fetch real Bitcoin price:', error.message);
+      console.log('Continuing with simulated price movements...');
+    }
+  }
+
   private generatePriceUpdate(): void {
-    // Simulate realistic Bitcoin price movements
-    const volatility = 0.002; // 0.2% volatility per update
+    // Small realistic variations around the real price
+    const volatility = 0.0005; // 0.05% volatility per second
     const randomChange = (Math.random() - 0.5) * 2 * volatility;
     
-    // Add some trending behavior
-    const trend = Math.sin(Date.now() / 1000000) * 0.0005;
-    
-    const priceChange = this.currentPrice * (randomChange + trend);
-    const newPrice = Math.max(1000, this.currentPrice + priceChange); // Minimum $1000
+    const priceChange = this.currentPrice * randomChange;
+    const newPrice = Math.max(1000, this.currentPrice + priceChange);
 
     const change24h = newPrice - this.currentPrice;
     const changePercent24h = (change24h / this.currentPrice) * 100;
 
-    // Generate realistic volume (between 500M and 2B)
-    const baseVolume = 1200000000; // 1.2B base volume
-    const volumeVariation = (Math.random() - 0.5) * 0.4; // ±20% variation
+    // Generate realistic volume
+    const baseVolume = 45000000000; // ~$45B daily volume
+    const volumeVariation = (Math.random() - 0.5) * 0.2;
     const volume24h = baseVolume * (1 + volumeVariation);
 
     const priceUpdate: LivePriceUpdate = {
@@ -70,7 +105,6 @@ export class PriceFeedService {
     this.currentPrice = newPrice;
     this.lastUpdate = Date.now();
 
-    // Store the update
     storage.updateCurrentPrice(priceUpdate);
   }
 
@@ -78,15 +112,14 @@ export class PriceFeedService {
     const currentPriceData = storage.getCurrentPrice();
     if (!currentPriceData) return;
 
-    // Generate OHLCV data for 5-minute candle
     const priceData: InsertPriceData = {
       symbol: "BTCUSD",
       timestamp: new Date(),
-      open: this.currentPrice * (0.999 + Math.random() * 0.002), // Slight variation
-      high: this.currentPrice * (1 + Math.random() * 0.003),
-      low: this.currentPrice * (1 - Math.random() * 0.003),
+      open: this.currentPrice * (0.999 + Math.random() * 0.002),
+      high: this.currentPrice * (1 + Math.random() * 0.001),
+      low: this.currentPrice * (1 - Math.random() * 0.001),
       close: this.currentPrice,
-      volume: currentPriceData.volume24h / (24 * 12), // Approximate 5-min volume
+      volume: currentPriceData.volume24h / (24 * 12),
       timeframe: "5m"
     };
 
@@ -94,13 +127,11 @@ export class PriceFeedService {
   }
 
   private getHigh24h(): number {
-    // Simple simulation - in real app, track actual high
-    return this.currentPrice * 1.05;
+    return this.currentPrice * 1.02;
   }
 
   private getLow24h(): number {
-    // Simple simulation - in real app, track actual low  
-    return this.currentPrice * 0.95;
+    return this.currentPrice * 0.98;
   }
 
   getCurrentPrice(): LivePriceUpdate | undefined {

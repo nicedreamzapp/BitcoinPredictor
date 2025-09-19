@@ -1,14 +1,16 @@
+import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { Activity } from "lucide-react";
 
 export default function TechnicalIndicators() {
   const { data: indicators, isLoading } = useQuery({
-    queryKey: ['/api/market/current'],
+    queryKey: ['/api/indicators/latest/BTCUSD'],
+    queryFn: () => apiRequest('GET', '/api/indicators/latest/BTCUSD').then(r => r.json()),
     refetchInterval: 5000,
   });
 
-  if (isLoading || !(indicators as any)?.indicators) {
+  if (isLoading || !indicators) {
     return (
       <Card className="p-4">
         <h3 className="font-semibold mb-4">Technical Indicators</h3>

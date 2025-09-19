@@ -37,42 +37,49 @@ export function useTradingData() {
   // Current market data
   const { data: marketData } = useQuery({
     queryKey: ['/api/market/current'],
+    queryFn: () => apiRequest('GET', '/api/market/current').then(r => r.json()),
     refetchInterval: 10000,
   });
 
   // Strategy status
   const { data: strategyStatus } = useQuery({
     queryKey: ['/api/strategy/status'],
+    queryFn: () => apiRequest('GET', '/api/strategy/status').then(r => r.json()),
     refetchInterval: 5000,
   });
 
   // Recent signals
   const { data: recentSignals } = useQuery({
     queryKey: ['/api/signals'],
+    queryFn: () => apiRequest('GET', '/api/signals').then(r => r.json()),
     refetchInterval: 5000,
   });
 
   // Active trades
   const { data: activeTrades } = useQuery({
     queryKey: ['/api/trades', 'active'],
+    queryFn: () => apiRequest('GET', '/api/trades?active=true').then(r => r.json()),
     refetchInterval: 3000,
   });
 
   // Recent trades
   const { data: recentTrades } = useQuery({
     queryKey: ['/api/trades'],
+    queryFn: () => apiRequest('GET', '/api/trades').then(r => r.json()),
     refetchInterval: 5000,
   });
 
   // Performance analytics
   const { data: performanceData } = useQuery({
     queryKey: ['/api/analytics/performance'],
+    queryFn: () => apiRequest('GET', '/api/analytics/performance').then(r => r.json()),
     refetchInterval: 10000,
   });
 
   // Backtest results
   const { data: backtestResults } = useQuery({
     queryKey: ['/api/backtest/results'],
+    queryFn: () => apiRequest('GET', '/api/backtest/results').then(r => r.json()),
     refetchInterval: 30000,
   });
 

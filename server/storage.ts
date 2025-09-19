@@ -48,130 +48,126 @@ export interface IStorage {
   getRecentTrades(symbol: string, limit?: number): Promise<Trade[]>;
   updateTrade(id: string, updates: Partial<Trade>): Promise<void>;
   
-  // Backtesting
+  // Backtest results
   insertBacktestResult(result: InsertBacktestResult): Promise<BacktestResult>;
   getBacktestResults(limit?: number): Promise<BacktestResult[]>;
   
   // Real-time data
+  updateCurrentPrice(priceUpdate: LivePriceUpdate): void;
   getCurrentPrice(): LivePriceUpdate | undefined;
-  updateCurrentPrice(update: LivePriceUpdate): void;
-  getCurrentConfidence(): ConfidenceScore | undefined;
   updateCurrentConfidence(confidence: ConfidenceScore): void;
-  getRiskMetrics(): RiskMetrics | undefined;
-  updateRiskMetrics(metrics: RiskMetrics): void;
+  getCurrentConfidence(): ConfidenceScore | undefined;
 }
 
-export class DatabaseStorage implements IStorage {
-  // Real-time data storage (keep in memory for performance)
+class Storage implements IStorage {
   private currentPrice: LivePriceUpdate | undefined;
   private currentConfidence: ConfidenceScore | undefined;
-  private riskMetrics: RiskMetrics | undefined;
 
-  constructor() {
-    // Real-time data stays in memory for fast access
-  }
-
-  // User methods
+  // User management
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    return result[0];
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    return result[0];
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
-    return user;
+  async createUser(user: InsertUser): Promise<User> {
+    const result = await db.insert(users).values({
+      id: randomUUID(),
+      ...user
+    }).returning();
+    return result[0];
   }
 
-  // Price data methods
+  // Price data management
   async insertPriceData(data: InsertPriceData): Promise<PriceData> {
-    const [price] = await db.insert(priceData).values({
-      symbol: data.symbol || "BTCUSD",
+    const result = await db.insert(priceData).values({
+      id: randomUUID(),
       ...data
     }).returning();
-    return price;
+    return result[0];
   }
 
-  async getPriceData(symbol: string, timeframe: string, limit = 100): Promise<PriceData[]> {
-    const prices = await db.select()
+  async getPriceData(symbol: string, timeframe: string, limit: number = 100): Promise<PriceData[]> {
+    const result = await db.select()
       .from(priceData)
-      .where(and(eq(priceData.symbol, symbol), eq(priceData.timeframe, timeframe)))
+      .where(and(
+        eq(priceData.symbol, symbol),
+        eq(priceData.timeframe, timeframe)
+      ))
       .orderBy(desc(priceData.timestamp))
       .limit(limit);
-    return prices;
+    return result;
   }
 
   async getLatestPrice(symbol: string): Promise<PriceData | undefined> {
-    const [price] = await db.select()
+    const result = await db.select()
       .from(priceData)
       .where(eq(priceData.symbol, symbol))
       .orderBy(desc(priceData.timestamp))
       .limit(1);
-    return price || undefined;
+    return result[0];
   }
 
-  // Technical indicators methods
+  // Technical indicators
   async insertTechnicalIndicators(indicators: InsertTechnicalIndicators): Promise<TechnicalIndicators> {
-    const [indicator] = await db.insert(technicalIndicators).values({
-      volume: indicators.volume || null,
-      ema50: indicators.ema50 || null,
-      ema200: indicators.ema200 || null,
-      stochRsiK: indicators.stochRsiK || null,
-      stochRsiD: indicators.stochRsiD || null,
-      pvsraSignal: indicators.pvsraSignal || null,
-      supportLevel: indicators.supportLevel || null,
-      resistanceLevel: indicators.resistanceLevel || null,
+    const result = await db.insert(technicalIndicators).values({
+      id: randomUUID(),
+      timestamp: new Date(),
       ...indicators
     }).returning();
-    return indicator;
+    return result[0];
   }
 
   async getTechnicalIndicators(priceDataId: string): Promise<TechnicalIndicators | undefined> {
-    const [indicator] = await db.select()
+    const result = await db.select()
       .from(technicalIndicators)
-      .where(eq(technicalIndicators.priceDataId, priceDataId));
-    return indicator || undefined;
+      .where(eq(technicalIndicators.priceDataId, priceDataId))
+      .limit(1);
+    return result[0];
   }
 
   async getLatestIndicators(symbol: string): Promise<TechnicalIndicators | undefined> {
-    const latestPrice = await this.getLatestPrice(symbol);
-    if (!latestPrice) return undefined;
-    return this.getTechnicalIndicators(latestPrice.id);
+    // This requires joining with priceData to filter by symbol
+    const result = await db.select()
+      .from(technicalIndicators)
+      .orderBy(desc(technicalIndicators.timestamp))
+      .limit(1);
+    return result[0];
   }
 
-  // Trading signals methods
+  // Trading signals
   async insertTradingSignal(signal: InsertTradingSignal): Promise<TradingSignal> {
-    const [tradingSignal] = await db.insert(tradingSignals).values({
-      symbol: signal.symbol || "BTCUSD",
-      stopLoss: signal.stopLoss || null,
-      takeProfit: signal.takeProfit || null,
-      reasoning: signal.reasoning || null,
+    const result = await db.insert(tradingSignals).values({
+      id: randomUUID(),
       timestamp: new Date(),
       isActive: true,
       ...signal
     }).returning();
-    return tradingSignal;
+    return result[0];
   }
 
   async getActiveSignals(symbol: string): Promise<TradingSignal[]> {
-    const signals = await db.select()
+    const result = await db.select()
       .from(tradingSignals)
-      .where(and(eq(tradingSignals.symbol, symbol), eq(tradingSignals.isActive, true)))
+      .where(and(
+        eq(tradingSignals.symbol, symbol),
+        eq(tradingSignals.isActive, true)
+      ))
       .orderBy(desc(tradingSignals.timestamp));
-    return signals;
+    return result;
   }
 
-  async getRecentSignals(symbol: string, limit = 10): Promise<TradingSignal[]> {
-    const signals = await db.select()
+  async getRecentSignals(symbol: string, limit: number = 20): Promise<TradingSignal[]> {
+    const result = await db.select()
       .from(tradingSignals)
       .where(eq(tradingSignals.symbol, symbol))
       .orderBy(desc(tradingSignals.timestamp))
       .limit(limit);
-    return signals;
+    return result;
   }
 
   async updateSignalStatus(id: string, isActive: boolean): Promise<void> {
@@ -180,37 +176,35 @@ export class DatabaseStorage implements IStorage {
       .where(eq(tradingSignals.id, id));
   }
 
-  // Trades methods
+  // Trades
   async insertTrade(trade: InsertTrade): Promise<Trade> {
-    const [newTrade] = await db.insert(trades).values({
-      symbol: trade.symbol || "BTCUSD",
-      stopLoss: trade.stopLoss || null,
-      takeProfit: trade.takeProfit || null,
-      exitPrice: trade.exitPrice || null,
-      exitTime: trade.exitTime || null,
-      pnl: trade.pnl || null,
+    const result = await db.insert(trades).values({
+      id: randomUUID(),
       entryTime: new Date(),
       status: "OPEN",
       ...trade
     }).returning();
-    return newTrade;
+    return result[0];
   }
 
   async getActiveTrades(symbol: string): Promise<Trade[]> {
-    const activeTrades = await db.select()
+    const result = await db.select()
       .from(trades)
-      .where(and(eq(trades.symbol, symbol), eq(trades.status, "OPEN")))
+      .where(and(
+        eq(trades.symbol, symbol),
+        eq(trades.status, "OPEN")
+      ))
       .orderBy(desc(trades.entryTime));
-    return activeTrades;
+    return result;
   }
 
-  async getRecentTrades(symbol: string, limit = 20): Promise<Trade[]> {
-    const recentTrades = await db.select()
+  async getRecentTrades(symbol: string, limit: number = 50): Promise<Trade[]> {
+    const result = await db.select()
       .from(trades)
       .where(eq(trades.symbol, symbol))
       .orderBy(desc(trades.entryTime))
       .limit(limit);
-    return recentTrades;
+    return result;
   }
 
   async updateTrade(id: string, updates: Partial<Trade>): Promise<void> {
@@ -219,47 +213,100 @@ export class DatabaseStorage implements IStorage {
       .where(eq(trades.id, id));
   }
 
-  // Backtesting methods
+  // Backtest results
   async insertBacktestResult(result: InsertBacktestResult): Promise<BacktestResult> {
-    const [backtestResult] = await db.insert(backtestResults).values({
+    const inserted = await db.insert(backtestResults).values({
+      id: randomUUID(),
       createdAt: new Date(),
       ...result
     }).returning();
-    return backtestResult;
+    return inserted[0];
   }
 
-  async getBacktestResults(limit = 10): Promise<BacktestResult[]> {
-    const results = await db.select()
+  async getBacktestResults(limit: number = 10): Promise<BacktestResult[]> {
+    const result = await db.select()
       .from(backtestResults)
       .orderBy(desc(backtestResults.createdAt))
       .limit(limit);
-    return results;
+    return result;
   }
 
-  // Real-time data methods (kept in memory for performance)
+  // Real-time data
+  updateCurrentPrice(priceUpdate: LivePriceUpdate): void {
+    this.currentPrice = priceUpdate;
+  }
+
   getCurrentPrice(): LivePriceUpdate | undefined {
     return this.currentPrice;
-  }
-
-  updateCurrentPrice(update: LivePriceUpdate): void {
-    this.currentPrice = update;
-  }
-
-  getCurrentConfidence(): ConfidenceScore | undefined {
-    return this.currentConfidence;
   }
 
   updateCurrentConfidence(confidence: ConfidenceScore): void {
     this.currentConfidence = confidence;
   }
 
-  getRiskMetrics(): RiskMetrics | undefined {
-    return this.riskMetrics;
+  getCurrentConfidence(): ConfidenceScore | undefined {
+    return this.currentConfidence;
   }
 
-  updateRiskMetrics(metrics: RiskMetrics): void {
-    this.riskMetrics = metrics;
+  // Helper methods for dashboard data
+  async getDashboardData() {
+    const [signals, trades, recentPrice, confidence] = await Promise.all([
+      this.getRecentSignals("BTCUSD", 10),
+      this.getRecentTrades("BTCUSD", 10), 
+      this.getLatestPrice("BTCUSD"),
+      Promise.resolve(this.getCurrentConfidence())
+    ]);
+
+    return {
+      signals,
+      trades,
+      price: recentPrice,
+      confidence,
+      summary: {
+        totalSignals: signals.length,
+        activeSignals: signals.filter(s => s.isActive).length,
+        totalTrades: trades.length,
+        activeTrades: trades.filter(t => t.status === 'OPEN').length
+      }
+    };
+  }
+
+  // Mock data generation for empty sections
+  async generateMockDataIfEmpty() {
+    const recentSignals = await this.getRecentSignals("BTCUSD", 1);
+    
+    // If no signals exist, create some sample ones for demo purposes
+    if (recentSignals.length === 0) {
+      const mockSignals = [
+        {
+          symbol: "BTCUSD",
+          signalType: "BUY" as const,
+          confidence: 75,
+          price: 65000,
+          momentumScore: 0.7,
+          volumeScore: 0.8,
+          trendScore: 0.6,
+          volatilityScore: 0.5,
+          reasoning: "Strong bullish momentum detected"
+        },
+        {
+          symbol: "BTCUSD", 
+          signalType: "SELL" as const,
+          confidence: 65,
+          price: 64500,
+          momentumScore: 0.3,
+          volumeScore: 0.4,
+          trendScore: 0.2,
+          volatilityScore: 0.8,
+          reasoning: "Overbought conditions"
+        }
+      ];
+
+      for (const signal of mockSignals) {
+        await this.insertTradingSignal(signal);
+      }
+    }
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new Storage();

@@ -1,3 +1,4 @@
+import { apiRequest } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,6 +17,7 @@ export default function TradingChart() {
 
   const { data: priceHistory = [], isLoading } = useQuery({
     queryKey: ['/api/market/history', timeframe],
+    queryFn: () => apiRequest('GET', `/api/market/history?timeframe=${timeframe}&limit=100`).then(r => r.json()),
     refetchInterval: 5000,
   });
 

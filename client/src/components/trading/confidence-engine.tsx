@@ -96,7 +96,7 @@ export default function ConfidenceEngine({ confidence }: ConfidenceEngineProps) 
                 data-testid="momentum-score"
                 className="font-mono text-chart-1"
               >
-                {confidence.momentumScore > 0 ? '+' : ''}{confidence.momentumScore.toFixed(2)}
+                {confidence.momentumScore > 0 ? '+' : ''}{(confidence.momentumScore || 0).toFixed(2)}
               </span>
             </div>
             <div className="flex justify-between">
@@ -105,7 +105,7 @@ export default function ConfidenceEngine({ confidence }: ConfidenceEngineProps) 
                 data-testid="volume-score"
                 className="font-mono text-chart-2"
               >
-                {confidence.volumeScore > 0 ? '+' : ''}{confidence.volumeScore.toFixed(2)}
+                {confidence.volumeScore > 0 ? '+' : ''}{(confidence.volumeScore || 0).toFixed(2)}
               </span>
             </div>
             <div className="flex justify-between">
@@ -114,7 +114,7 @@ export default function ConfidenceEngine({ confidence }: ConfidenceEngineProps) 
                 data-testid="trend-score"
                 className="font-mono text-chart-3"
               >
-                {confidence.trendScore > 0 ? '+' : ''}{confidence.trendScore.toFixed(2)}
+                {confidence.trendScore > 0 ? '+' : ''}{(confidence.trendScore || 0).toFixed(2)}
               </span>
             </div>
             <div className="flex justify-between">
@@ -123,7 +123,7 @@ export default function ConfidenceEngine({ confidence }: ConfidenceEngineProps) 
                 data-testid="volatility-score"
                 className="font-mono text-chart-4"
               >
-                {confidence.volatilityScore > 0 ? '+' : ''}{confidence.volatilityScore.toFixed(2)}
+                {confidence.volatilityScore > 0 ? '+' : ''}{(confidence.volatilityScore || 0).toFixed(2)}
               </span>
             </div>
           </div>
