@@ -6,6 +6,7 @@ import { tradingEngine } from "./services/trading-engine";
 import { priceFeedService } from "./services/price-feed";
 import { mlPredictor } from "./services/ml-predictor";
 import { BacktestingEngine } from "./services/backtesting-engine";
+import { signalGenerator } from "./services/signal-generator";
 import { 
   insertTradingSignalSchema,
   insertTradeSchema,
@@ -304,15 +305,23 @@ export function registerRoutes(app: Express): Server {
   app.post('/api/backtest', async (req, res) => {
     try {
       const validatedParams = backtestParamsSchema.parse(req.body);
-      const result = await backtestingEngine.runBacktest(validatedParams);
-      
-      await storage.insertBacktestResult(result);
+
+      // Convert string dates to Date objects for the backtesting engine
+      const paramsWithDates = {
+        ...validatedParams,
+        startDate: new Date(validatedParams.startDate),
+        endDate: new Date(validatedParams.endDate)
+      };
+
+      const result = await backtestingEngine.runBacktest(paramsWithDates);
+
       res.json(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ message: "Invalid backtest parameters", errors: error.errors });
       } else {
-        res.status(500).json({ message: "Failed to run backtest" });
+        console.error("Backtest error:", error);
+        res.status(500).json({ message: error instanceof Error ? error.message : "Failed to run backtest" });
       }
     }
   });

@@ -67,34 +67,43 @@ export class SignalGenerator {
       const confidenceScore = await tradingEngine.calculateConfidenceScore(prices, volumes);
 
       const signal = await tradingEngine.generateTradingSignal(confidenceScore, currentPrice.price);
-      
+
       if (signal) {
-        console.log("Inserting signal:", { symbol: "BTCUSD", signalType: signal.type, direction: signal.direction, confidence: signal.confidence });
-        
-        await storage.insertTradingSignal({
+        // Extract stop-loss and take-profit from signal metadata
+        const stopLoss = signal.metadata?.stopLoss || currentPrice.price * 0.97;
+        const takeProfit = signal.metadata?.takeProfit || currentPrice.price * 1.06;
+
+        console.log("Inserting signal:", {
           symbol: "BTCUSD",
           signalType: signal.type,
           direction: signal.direction,
           confidence: signal.confidence,
+          stopLoss: stopLoss.toFixed(2),
+          takeProfit: takeProfit.toFixed(2)
+        });
+
+        await storage.insertTradingSignal({
+          symbol: "BTCUSD",
+          signalType: signal.direction, // Use direction (LONG/SHORT) instead of type (BUY/SELL)
+          confidence: signal.confidence,
           price: currentPrice.price,
+          stopLoss: stopLoss,
+          takeProfit: takeProfit,
+          reasoning: signal.reason,
           momentumScore: confidenceScore.momentum,
           volumeScore: confidenceScore.volume,
           trendScore: confidenceScore.trend,
           volatilityScore: confidenceScore.volatility
         });
-        
-        console.log(`Generated ${signal.direction} signal with ${signal.confidence}% confidence`);
+
+        console.log(`Generated ${signal.direction} signal with ${signal.confidence}% confidence | SL: $${stopLoss.toFixed(0)} | TP: $${takeProfit.toFixed(0)}`);
       } else {
-        console.log(`Confidence too low for signal generation`);
+        console.log(`Confidence in neutral zone (40-60%) - no signal generated`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error generating signals:", error.message);
     }
   }
 }
 
 export const signalGenerator = new SignalGenerator();
-
-export async function generateTradingSignal(priceData: any[]) {
-  return signalGenerator.generateSignal(priceData);
-}

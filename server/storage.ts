@@ -25,43 +25,47 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  
+
   // Price data management
   insertPriceData(data: InsertPriceData): Promise<PriceData>;
   getPriceData(symbol: string, timeframe: string, limit?: number): Promise<PriceData[]>;
   getLatestPrice(symbol: string): Promise<PriceData | undefined>;
-  
+
   // Technical indicators
   insertTechnicalIndicators(indicators: InsertTechnicalIndicators): Promise<TechnicalIndicators>;
   getTechnicalIndicators(priceDataId: string): Promise<TechnicalIndicators | undefined>;
   getLatestIndicators(symbol: string): Promise<TechnicalIndicators | undefined>;
-  
+
   // Trading signals
   insertTradingSignal(signal: InsertTradingSignal): Promise<TradingSignal>;
   getActiveSignals(symbol: string): Promise<TradingSignal[]>;
   getRecentSignals(symbol: string, limit?: number): Promise<TradingSignal[]>;
   updateSignalStatus(id: string, isActive: boolean): Promise<void>;
-  
+
   // Trades
   insertTrade(trade: InsertTrade): Promise<Trade>;
+  getTrade(id: string): Promise<Trade | undefined>;
   getActiveTrades(symbol: string): Promise<Trade[]>;
   getRecentTrades(symbol: string, limit?: number): Promise<Trade[]>;
   updateTrade(id: string, updates: Partial<Trade>): Promise<void>;
-  
+
   // Backtest results
   insertBacktestResult(result: InsertBacktestResult): Promise<BacktestResult>;
   getBacktestResults(limit?: number): Promise<BacktestResult[]>;
-  
+
   // Real-time data
   updateCurrentPrice(priceUpdate: LivePriceUpdate): void;
   getCurrentPrice(): LivePriceUpdate | undefined;
   updateCurrentConfidence(confidence: ConfidenceScore): void;
   getCurrentConfidence(): ConfidenceScore | undefined;
+  updateRiskMetrics(metrics: RiskMetrics): void;
+  getRiskMetrics(): RiskMetrics | undefined;
 }
 
 class Storage implements IStorage {
   private currentPrice: LivePriceUpdate | undefined;
   private currentConfidence: ConfidenceScore | undefined;
+  private currentRiskMetrics: RiskMetrics | undefined;
 
   // User management
   async getUser(id: string): Promise<User | undefined> {
@@ -188,6 +192,14 @@ class Storage implements IStorage {
     return result[0];
   }
 
+  async getTrade(id: string): Promise<Trade | undefined> {
+    const result = await db.select()
+      .from(trades)
+      .where(eq(trades.id, id))
+      .limit(1);
+    return result[0];
+  }
+
   async getActiveTrades(symbol: string): Promise<Trade[]> {
     const result = await db.select()
       .from(trades)
@@ -248,6 +260,14 @@ class Storage implements IStorage {
 
   getCurrentConfidence(): ConfidenceScore | undefined {
     return this.currentConfidence;
+  }
+
+  updateRiskMetrics(metrics: RiskMetrics): void {
+    this.currentRiskMetrics = metrics;
+  }
+
+  getRiskMetrics(): RiskMetrics | undefined {
+    return this.currentRiskMetrics;
   }
 
   // Helper methods for dashboard data

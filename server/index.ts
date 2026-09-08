@@ -60,7 +60,7 @@ app.use((req, res, next) => {
   priceFeedService.start();
   signalGenerator.start();
 
-  const port = parseInt(process.env.PORT || '5000', 10);
+  const port = parseInt(process.env.PORT || '3001', 10);
   server.listen({
     port,
     host: "127.0.0.1",

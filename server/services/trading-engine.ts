@@ -213,8 +213,10 @@ export class TradingEngine {
     }
 
     // Calculate RSI for momentum
+    // RSI > 70 = overbought (bearish, lower buy confidence)
+    // RSI < 30 = oversold (bullish, higher buy confidence)
     const rsi = this.calculateRSI(prices);
-    const momentumScore = rsi > 70 ? 0.8 : rsi < 30 ? 0.2 : 0.5;
+    const momentumScore = rsi < 30 ? 0.85 : rsi > 70 ? 0.15 : 0.5 + ((50 - rsi) / 100);
 
     // Calculate trend using moving averages
     const sma20 = this.calculateSMA(prices, Math.min(20, prices.length));
@@ -266,38 +268,71 @@ export class TradingEngine {
   }
 
   async generateTradingSignal(confidence: ConfidenceScore, currentPrice: number): Promise<MarketSignal | null> {
-    if (confidence.overall > 0.3) {
+    // Higher thresholds for more reliable signals
+    // BUY when confidence > 60% (strong bullish indicators)
+    // SELL when confidence < 40% (strong bearish indicators)
+
+    if (confidence.overall > 0.60) {
+      // Calculate dynamic stop-loss and take-profit based on volatility
+      const volatilityMultiplier = 1 + (1 - confidence.volatility) * 0.5; // Lower volatility = tighter stops
+      const stopLossPercent = 0.02 * volatilityMultiplier; // 2-3% stop loss
+      const takeProfitPercent = 0.04 * volatilityMultiplier; // 4-6% take profit (2:1 ratio)
+
       return {
         type: 'BUY',
         direction: 'LONG',
         strength: confidence.overall,
         confidence: Math.round(confidence.overall * 100),
-        reason: 'Positive confidence signal',
+        reason: this.generateReason(confidence, 'LONG'),
         timestamp: new Date(),
         metadata: {
           momentum: confidence.momentum,
           trend: confidence.trend,
           volume: confidence.volume,
-          volatility: confidence.volatility
+          volatility: confidence.volatility,
+          stopLoss: currentPrice * (1 - stopLossPercent),
+          takeProfit: currentPrice * (1 + takeProfitPercent)
         }
       };
-    } else if (confidence.overall < 0.25) {
+    } else if (confidence.overall < 0.40) {
+      const volatilityMultiplier = 1 + (1 - confidence.volatility) * 0.5;
+      const stopLossPercent = 0.02 * volatilityMultiplier;
+      const takeProfitPercent = 0.04 * volatilityMultiplier;
+
       return {
         type: 'SELL',
         direction: 'SHORT',
         strength: 1 - confidence.overall,
         confidence: Math.round((1 - confidence.overall) * 100),
-        reason: 'Negative confidence signal',
+        reason: this.generateReason(confidence, 'SHORT'),
         timestamp: new Date(),
         metadata: {
           momentum: confidence.momentum,
           trend: confidence.trend,
           volume: confidence.volume,
-          volatility: confidence.volatility
+          volatility: confidence.volatility,
+          stopLoss: currentPrice * (1 + stopLossPercent),
+          takeProfit: currentPrice * (1 - takeProfitPercent)
         }
       };
     }
     return null;
+  }
+
+  private generateReason(confidence: ConfidenceScore, direction: 'LONG' | 'SHORT'): string {
+    const reasons: string[] = [];
+
+    if (direction === 'LONG') {
+      if (confidence.momentum > 0.7) reasons.push('Strong bullish momentum');
+      if (confidence.trend > 0.6) reasons.push('Uptrend confirmed');
+      if (confidence.volume > 0.6) reasons.push('High volume support');
+    } else {
+      if (confidence.momentum < 0.3) reasons.push('Weak momentum');
+      if (confidence.trend < 0.4) reasons.push('Downtrend detected');
+      if (confidence.volume < 0.4) reasons.push('Low volume warning');
+    }
+
+    return reasons.length > 0 ? reasons.join(', ') : `${direction} signal based on technical analysis`;
   }
 
   // Additional methods for signal generator compatibility
@@ -335,15 +370,21 @@ export class TradingEngine {
     let confidence = 0.5;
     let reasons: string[] = [];
 
-    // RSI analysis
+    // RSI analysis - RSI < 30 = oversold (buy opportunity), RSI > 70 = overbought (sell opportunity)
     if (indicators.rsi < 30) {
       signal = 'BUY';
-      strength += 0.3;
-      reasons.push('RSI oversold');
+      strength += 0.35;
+      reasons.push('RSI oversold - buy opportunity');
     } else if (indicators.rsi > 70) {
       signal = 'SELL';
-      strength += 0.3;
-      reasons.push('RSI overbought');
+      strength += 0.35;
+      reasons.push('RSI overbought - sell opportunity');
+    } else if (indicators.rsi < 40) {
+      strength += 0.1;
+      reasons.push('RSI approaching oversold');
+    } else if (indicators.rsi > 60) {
+      strength += 0.1;
+      reasons.push('RSI approaching overbought');
     }
 
     // MACD analysis
