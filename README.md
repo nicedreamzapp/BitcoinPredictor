@@ -13,9 +13,19 @@
     ╚═══════════════════════════════════════╝
 ```
 
-**A full-stack Bitcoin dashboard that pulls the live BTC price, scores it with technical indicators, and prints long/short signals with a confidence score, stop-loss and take-profit.**
+**Retired in March 2026.** A full-stack Bitcoin dashboard that pulled the live BTC price, scored it with technical indicators, and printed long/short signals with a confidence score, stop-loss and take-profit. Kept here as a record, not a live product.
 
 ![BitTrader UI](https://github.com/nicedreamzapp/BitcoinPredictor/blob/main/BitTraderUiScreen.png?raw=true)
+
+## Post-mortem
+
+I built BitTrader Pro in September 2025 as a Bitcoin signal dashboard. It scores the live BTC price with technical indicators and prints long and short signals. This repo was always a research and paper-trading tool, and it never placed a real order itself.
+
+On my server it grew into a live trading setup. I added a Coinbase executor, and in March 2026 I put a three-agent AI gate in front of it. An Analyst and a Risk Manager both had to approve every trade, and a Sentinel scanned market mood every 30 minutes. A Kalshi prediction-market bot ran under the same gate.
+
+It didn't work. The crypto bot was losing money buying random altcoins. The sports "value" bets were really just AI opinions, and betting on an AI's opinion is gambling. I shut every trading agent down on March 22, 2026.
+
+Here's what I wrote down afterward. Protecting capital comes before chasing gains, and making $0 is better than losing $50. Cash stays cash. No more letting an AI score bets. When a bot is losing, report it and stop it right away.
 
 ---
 
